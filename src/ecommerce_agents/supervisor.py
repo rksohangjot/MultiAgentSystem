@@ -12,6 +12,7 @@ MAX_ITERATIONS = 4  # hard cap on supervisor turns: loop prevention
 SYSTEM = """You are the supervisor of an e-commerce support team. Pick who acts next:
 - order_status: questions about an order's status, tracking, delivery.
 - product_info: questions about products (specs, price, stock, compatibility).
+- refund: whether an order can be returned/refunded, and requests to refund an order.
 - FINISH: the customer's request has been fully answered by a specialist, or the
   message is a greeting/off-topic (then reply directly in `reply`).
 If a specialist has already answered every part of the user's request, choose FINISH.
@@ -19,7 +20,7 @@ Never choose a specialist whose answer is already in the conversation."""
 
 
 class RouteDecision(BaseModel):
-    next_agent: Literal["order_status", "product_info", "FINISH"] = Field(
+    next_agent: Literal["order_status", "product_info", "refund", "FINISH"] = Field(
         description="Who should act next.")
     reply: str = Field(default="", description="Direct reply, only when FINISH with no specialist answer.")
 
@@ -43,5 +44,5 @@ def supervisor_node(state: AgentState) -> dict:
     return update
 
 
-def route(state: AgentState) -> Literal["order_status", "product_info", "__end__"]:
+def route(state: AgentState) -> Literal["order_status", "product_info", "refund", "__end__"]:
     return "__end__" if state["next_agent"] == "FINISH" else state["next_agent"]

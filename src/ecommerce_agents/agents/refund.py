@@ -4,14 +4,13 @@ from langgraph.errors import GraphRecursionError
 from langgraph.prebuilt import create_react_agent
 
 from ecommerce_agents.llm import get_llm
-from ecommerce_agents.tools.order_tools import get_order_status
-from ecommerce_agents.tools.refund_tools import REFUND_TOOLS
+from ecommerce_agents.tools import AGENT_TOOLS
 
 # Hard cap on the ReAct loop (loop prevention). ~3 tool round-trips + final answer.
 RECURSION_LIMIT = 8
 
 # Least privilege: order lookup (read-only) + refund tools. No product search.
-REFUND_AGENT_TOOLS = [get_order_status, *REFUND_TOOLS]
+REFUND_AGENT_TOOLS = AGENT_TOOLS["refund"]
 
 PROMPT = """You are the Returns/Refund agent for an online store.
 
