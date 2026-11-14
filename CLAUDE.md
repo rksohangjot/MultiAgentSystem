@@ -30,7 +30,7 @@ Multi-agent e-commerce support system (learning-first, aimed at AI roles). One c
 ### Tests (`tests/`)
 - `test_tools.py`: order found/missing, product search, no match (temp seeded DB).
 - `test_graph.py`: iteration cap, direct greeting reply, route mapping (stubbed router), plus 2 live routing tests.
-- Tests have not been run yet in this session; pass status unverified.
+- Last run: 7 passed, 2 skipped (live Groq tests need GROQ_API_KEY).
 
 ### Not built yet
 - Returns/Refund agent with ReAct loop
@@ -45,5 +45,5 @@ Multi-agent e-commerce support system (learning-first, aimed at AI roles). One c
 
 ## Notes
 - `DESIGN.md` status line still says "No code yet"; it is out of date.
-- Not a git repository.
+- Git repo on branch `main`, remote `origin` = https://github.com/rksohangjot/MultiAgentSystem.git
 - Design constraints: only the Refund agent should have write tools; use a stronger model as eval judge; never cut evals if the schedule slips.

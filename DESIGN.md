@@ -1,6 +1,6 @@
 # Multi-Agent E-commerce Support System: Running Design Draft
 
-Status: DISCUSSION. No code yet. Updated as decisions are made.
+Status: IN PROGRESS. Day 1 built (supervisor, Order-Status, Product-Info, CLI). See CLAUDE.md for current status.
 
 ## 1. Goal (learning-first)
 Build a multi-agent system step by step to learn and be able to explain in interviews:
