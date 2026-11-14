@@ -5,6 +5,7 @@
 - One feature per session; start a new session for the next feature.
 - Describe the approach in detail and get approval before implementing.
 - Update the Status section below at the end of each feature.
+- After each step: explain it in detail, name the file(s) (with line refs) holding the code, commit + push, then move to the next step.
 
 ## Project
 Multi-agent e-commerce support system (learning-first, aimed at AI roles). One chat interface; a supervisor routes each message to a specialist agent. Python, LangGraph, Groq (`llama-3.3-70b-versatile`), managed with `uv`. See `DESIGN.md` for goals, decision log and the 5-day roadmap.
