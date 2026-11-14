@@ -46,3 +46,4 @@ Multi-agent e-commerce support system (learning-first, aimed at AI roles). One c
 ## Notes
 - Git repo on branch `main`, remote `origin` = https://github.com/rksohangjot/MultiAgentSystem.git
 - Design constraints: only the Refund agent should have write tools; use a stronger model as eval judge; never cut evals if the schedule slips.
+- Decision: until human-in-the-loop approval exists, `initiate_refund` must refuse refunds over $50 with a "needs human approval" message (stopgap). Next feature: Returns/Refund agent (see plan in DESIGN.md roadmap, Day 2).
