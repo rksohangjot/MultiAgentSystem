@@ -44,6 +44,5 @@ Multi-agent e-commerce support system (learning-first, aimed at AI roles). One c
 - Long-term memory (future scope)
 
 ## Notes
-- `DESIGN.md` status line still says "No code yet"; it is out of date.
 - Git repo on branch `main`, remote `origin` = https://github.com/rksohangjot/MultiAgentSystem.git
 - Design constraints: only the Refund agent should have write tools; use a stronger model as eval judge; never cut evals if the schedule slips.
