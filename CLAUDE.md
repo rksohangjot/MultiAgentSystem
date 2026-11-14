@@ -47,3 +47,22 @@ Multi-agent e-commerce support system (learning-first, aimed at AI roles). One c
 - Git repo on branch `main`, remote `origin` = https://github.com/rksohangjot/MultiAgentSystem.git
 - Design constraints: only the Refund agent should have write tools; use a stronger model as eval judge; never cut evals if the schedule slips.
 - Decision: until human-in-the-loop approval exists, `initiate_refund` must refuse refunds over $50 with a "needs human approval" message (stopgap). Next feature: Returns/Refund agent (see plan in DESIGN.md roadmap, Day 2).
+
+## Approved plan: Returns/Refund agent (next feature, approved)
+Design decisions:
+- Eligibility is decided by deterministic code, not the LLM. `check_return_eligibility(order_id)` -> `{eligible, reason, amount}`: order must be `delivered`, within 30 days of delivery, no existing refund.
+- `initiate_refund(order_id, reason)` is the only write tool. It re-runs the eligibility check itself, refuses amounts over $50 ("needs human approval"), and is idempotent (a repeat call returns the existing refund).
+- "Today" is injectable (default real date) so tests are deterministic.
+- Full refunds only. No partial refunds or multi-item orders.
+- Refund agent tools: `get_order_status`, `get_return_policy`, `check_return_eligibility`, `initiate_refund`. No product lookup.
+- Identity check deferred: the order ID alone is accepted for now (known gap; revisit with guardrails/permissions).
+- Add a per-agent tool allowlist with a test that only the refund agent holds `initiate_refund`.
+- Cap the refund agent's tool calls/recursion in addition to the supervisor's 4-turn cap.
+
+Steps (commit + push after each):
+1. `refunds` table, `data/return_policy.md`, seed cases (incl. outside the window and already refunded).
+2. Eligibility + refund tools with unit tests.
+3. Refund agent and prompt.
+4. Graph wiring, supervisor routing, permission test.
+5. Live routing test, then update this Status section.
+Also test a mixed message ("order is late, I want my money back") routes to both agents.
