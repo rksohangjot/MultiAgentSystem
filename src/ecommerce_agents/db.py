@@ -14,6 +14,9 @@ CREATE TABLE IF NOT EXISTS orders (
     id INTEGER PRIMARY KEY, customer_id INTEGER, product_id INTEGER,
     status TEXT, tracking_number TEXT, order_date TEXT, estimated_delivery TEXT,
     total REAL);
+CREATE TABLE IF NOT EXISTS refunds (
+    id INTEGER PRIMARY KEY, order_id INTEGER UNIQUE, amount REAL,
+    reason TEXT, status TEXT, created_at TEXT);
 """
 
 CUSTOMERS = [
@@ -48,6 +51,14 @@ ORDERS = [
     (1008, 4, 7, "delivered", "TRK1008", "2026-11-01", "2026-11-04", 24.99),
     (1009, 5, 8, "processing", None, "2026-11-13", "2026-11-20", 35.00),
     (1010, 5, 10, "delivered", "TRK1010", "2026-10-10", "2026-10-14", 42.00),
+    # Return-policy cases (relative to demo date 2026-11-13):
+    # 1011: delivered recently, total > $50 (refund needs human approval)
+    (1011, 1, 6, "delivered", "TRK1011", "2026-11-03", "2026-11-08", 89.00),
+]
+
+# 1010 is already refunded -> not eligible again. UNIQUE(order_id) blocks duplicates.
+REFUNDS = [
+    (1, 1010, 42.00, "Lamp stopped working", "completed", "2026-10-20"),
 ]
 
 
@@ -64,12 +75,13 @@ def seed(path: Path | str | None = None) -> None:
     conn = get_conn(p)
     with conn:
         conn.executescript(
-            "DROP TABLE IF EXISTS orders; DROP TABLE IF EXISTS products; DROP TABLE IF EXISTS customers;"
+            "DROP TABLE IF EXISTS refunds; DROP TABLE IF EXISTS orders; DROP TABLE IF EXISTS products; DROP TABLE IF EXISTS customers;"
         )
         conn.executescript(SCHEMA)
         conn.executemany("INSERT INTO customers VALUES (?,?,?)", CUSTOMERS)
         conn.executemany("INSERT INTO products VALUES (?,?,?,?,?,?)", PRODUCTS)
         conn.executemany("INSERT INTO orders VALUES (?,?,?,?,?,?,?,?)", ORDERS)
+        conn.executemany("INSERT INTO refunds VALUES (?,?,?,?,?,?)", REFUNDS)
     conn.close()
 
 
