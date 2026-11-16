@@ -8,7 +8,7 @@
 - After each step: explain it in detail, name the file(s) (with line refs) holding the code, commit + push, then move to the next step.
 
 ## Project
-Multi-agent e-commerce support system (learning-first, aimed at AI roles). One chat interface; a supervisor routes each message to a specialist agent. Python, LangGraph, Groq (`llama-3.3-70b-versatile`), managed with `uv`. See `DESIGN.md` for goals, decision log and the 5-day roadmap.
+Multi-agent e-commerce support system (learning-first, aimed at AI roles). One chat interface; a supervisor routes each message to a specialist agent. Python, LangGraph, Groq (`openai/gpt-oss-120b`), managed with `uv`. See `DESIGN.md` for goals, decision log and the 5-day roadmap.
 
 ## Commands
 - Chat (CLI): `uv run python scripts/chat.py`
@@ -33,7 +33,7 @@ Multi-agent e-commerce support system (learning-first, aimed at AI roles). One c
 - `test_tools.py`: order found/missing, product search, no match (temp seeded DB).
 - `test_graph.py`: iteration cap, direct greeting reply, route mapping (stubbed router), plus live routing tests (order, product, 2 refund) and a live mixed-message test (order_status + refund).
 - `test_refund_graph.py` and refund tool/permission tests (stubbed LLM): eligibility, idempotency, $50 cap, allowlists, mixed request order_status -> refund.
-- Last run: 37 passed, 8 skipped (live Groq tests need GROQ_API_KEY; the new live tests have not been run yet).
+- Last run: 37 passed, 8 skipped (live Groq tests need GROQ_API_KEY; all 8 live tests pass on gpt-oss-120b).
 
 ### Not built yet
 - MCP servers for orders/catalog
