@@ -1,5 +1,7 @@
 """Refund agent: the only agent with a write tool (initiate_refund)."""
-from langchain_core.messages import AIMessage
+import json
+
+from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.errors import GraphRecursionError
 from langgraph.prebuilt import create_react_agent
 
@@ -35,6 +37,19 @@ HANDOFF = "Sorry, I couldn't complete that refund request. Let me get a human to
 OUT_OF_STEPS_PREFIX = "Sorry, need more steps"
 
 
+def pending_refund_id(new_messages) -> int | None:
+    """Id of a refund this run queued for human approval, read from initiate_refund's result."""
+    for m in new_messages:
+        if isinstance(m, ToolMessage) and m.name == "initiate_refund":
+            try:
+                result = json.loads(m.content)
+            except (TypeError, ValueError):
+                continue
+            if result.get("needs_human_approval") and result.get("refund"):
+                return result["refund"]["id"]
+    return None
+
+
 def build_refund_agent():
     """Return a graph node that runs the ReAct agent with a loop cap and human handoff.
 
@@ -50,6 +65,11 @@ def build_refund_agent():
             return {"messages": [AIMessage(content=HANDOFF, name="refund")]}
         if str(result["messages"][-1].content).startswith(OUT_OF_STEPS_PREFIX):
             return {"messages": [AIMessage(content=HANDOFF, name="refund")]}
-        return {"messages": result["messages"]}
+        update = {"messages": result["messages"]}
+        # Only this run's messages: history may hold an older, already-decided request.
+        queued = pending_refund_id(result["messages"][len(state["messages"]):])
+        if queued is not None:
+            update["pending_refund_id"] = queued  # graph routes to the approval node next
+        return update
 
     return refund_node
