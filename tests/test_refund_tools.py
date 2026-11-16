@@ -84,10 +84,37 @@ def test_refund_rejects_ineligible_without_prior_check():
     assert refund_count() == 1
 
 
-def test_refund_over_50_needs_human_approval():
+def test_refund_over_50_is_queued_not_paid():
     r = rt.create_refund(1011, "no longer needed", TODAY)
-    assert not r["success"] and r["needs_human_approval"]
-    assert refund_count() == 1
+    assert not r["success"] and r["needs_human_approval"] and not r["already_existed"]
+    assert r["refund"]["status"] == "pending_approval" and r["refund"]["amount"] == 89.00
+    assert refund_count() == 2  # seeded 1010 + pending row
+
+
+def test_pending_request_is_idempotent():
+    first = rt.create_refund(1011, "x", TODAY)
+    second = rt.create_refund(1011, "x", TODAY)
+    assert second["needs_human_approval"] and second["already_existed"]
+    assert second["refund"]["id"] == first["refund"]["id"]
+    assert refund_count() == 2
+
+
+def test_pending_order_not_eligible_again():
+    rt.create_refund(1011, "x", TODAY)
+    r = rt.check_eligibility(1011, TODAY)
+    assert not r["eligible"] and "awaiting human approval" in r["reason"]
+
+
+def test_rejected_order_is_final():
+    rt.create_refund(1011, "x", TODAY)
+    conn = db.get_conn()
+    with conn:
+        conn.execute("UPDATE refunds SET status = 'rejected' WHERE order_id = 1011")
+    conn.close()
+    assert "final" in rt.check_eligibility(1011, TODAY)["reason"]
+    r = rt.create_refund(1011, "please", TODAY)
+    assert not r["success"] and not r.get("needs_human_approval") and "final" in r["error"]
+    assert refund_count() == 2
 
 
 # --- tool wrappers ---

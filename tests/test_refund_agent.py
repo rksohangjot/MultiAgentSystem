@@ -101,7 +101,9 @@ def test_live_question_does_not_issue_refund():
 
 @pytest.mark.llm
 @needs_key
-def test_live_over_50_not_refunded():
+def test_live_over_50_queued_not_paid():
     node = refund.build_refund_agent()
     node({"messages": [HumanMessage("Refund order 1011 please, I changed my mind.")]}, {})
-    assert 1011 not in [r["order_id"] for r in refunds()]
+    statuses = [r["status"] for r in refunds() if r["order_id"] == 1011]
+    assert "completed" not in statuses  # never paid out without a human
+    assert statuses in ([], ["pending_approval"])

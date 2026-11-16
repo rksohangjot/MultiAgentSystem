@@ -13,7 +13,12 @@ from langchain_core.tools import tool
 from ecommerce_agents import db
 
 WINDOW_DAYS = 30
-APPROVAL_THRESHOLD = 50.0  # refunds above this need a human (stopgap until HITL feature)
+APPROVAL_THRESHOLD = 50.0  # refunds above this are queued for human approval
+
+# refunds.status values
+COMPLETED = "completed"
+PENDING = "pending_approval"
+REJECTED = "rejected"  # final: a rejected order cannot be re-requested
 POLICY_PATH = Path(db.__file__).resolve().parents[2] / "data" / "return_policy.md"
 
 
@@ -35,8 +40,14 @@ def _eligibility(conn, order_id: int, today: date) -> dict:
     if order["status"] != "delivered":
         return {**base, "eligible": False,
                 "reason": f"Order status is '{order['status']}'; only delivered orders can be refunded."}
-    if _refund_for(conn, order_id) is not None:
-        return {**base, "eligible": False, "reason": "This order has already been refunded."}
+    existing = _refund_for(conn, order_id)
+    if existing is not None:
+        reasons = {
+            PENDING: "A refund for this order is already awaiting human approval.",
+            REJECTED: "A refund request for this order was reviewed and rejected; that decision is final.",
+        }
+        return {**base, "eligible": False,
+                "reason": reasons.get(existing["status"], "This order has already been refunded.")}
     if not order["estimated_delivery"]:
         return {**base, "eligible": False, "reason": "No delivery date on record."}
     delivered = datetime.strptime(order["estimated_delivery"], "%Y-%m-%d").date()
@@ -57,33 +68,51 @@ def check_eligibility(order_id: int, today: date | None = None) -> dict:
         conn.close()
 
 
+def _existing_result(row) -> dict:
+    """Result for an order that already has a refund row (any status)."""
+    refund = dict(row)
+    if row["status"] == COMPLETED:
+        return {"success": True, "already_existed": True, "refund": refund}
+    if row["status"] == PENDING:
+        return {"success": False, "needs_human_approval": True, "already_existed": True,
+                "refund": refund, "error": "A refund for this order is already awaiting human approval."}
+    return {"success": False, "already_existed": True, "refund": refund,
+            "error": "A refund request for this order was reviewed and rejected; that decision is final."}
+
+
 def create_refund(order_id: int, reason: str, today: date | None = None) -> dict:
-    """Issue a full refund if (and only if) the order passes the policy check."""
+    """Issue a full refund if (and only if) the order passes the policy check.
+
+    Amounts over APPROVAL_THRESHOLD are not paid out: a `pending_approval` row is
+    created for a human to decide (see the approval node).
+    """
     db.ensure_db()
     today = today or date.today()
     conn = db.get_conn()
     try:
         existing = _refund_for(conn, order_id)
         if existing is not None:  # idempotent: repeat calls never create a second refund
-            return {"success": True, "already_existed": True, "refund": dict(existing)}
+            return _existing_result(existing)
         check = _eligibility(conn, order_id, today)
         if not check["eligible"]:
             return {"success": False, "error": check["reason"]}
-        if check["requires_approval"]:
-            return {"success": False, "needs_human_approval": True,
-                    "error": f"Refunds over ${APPROVAL_THRESHOLD:.0f} need human approval; "
-                             "this request has been flagged for a human agent."}
+        needs_approval = check["requires_approval"]
+        status = PENDING if needs_approval else COMPLETED
         try:
             with conn:
                 cur = conn.execute(
                     "INSERT INTO refunds (order_id, amount, reason, status, created_at) VALUES (?,?,?,?,?)",
-                    (order_id, check["amount"], reason, "completed", today.isoformat()),
+                    (order_id, check["amount"], reason, status, today.isoformat()),
                 )
         except sqlite3.IntegrityError:  # lost a race with another request
-            return {"success": True, "already_existed": True,
-                    "refund": dict(_refund_for(conn, order_id))}
-        return {"success": True, "already_existed": False,
-                "refund": dict(conn.execute("SELECT * FROM refunds WHERE id = ?", (cur.lastrowid,)).fetchone())}
+            return _existing_result(_refund_for(conn, order_id))
+        refund = dict(conn.execute("SELECT * FROM refunds WHERE id = ?", (cur.lastrowid,)).fetchone())
+        if needs_approval:
+            return {"success": False, "needs_human_approval": True, "already_existed": False,
+                    "refund": refund,
+                    "error": f"Refunds over ${APPROVAL_THRESHOLD:.0f} need human approval; "
+                             "this request has been queued for a human agent."}
+        return {"success": True, "already_existed": False, "refund": refund}
     finally:
         conn.close()
 
@@ -102,7 +131,7 @@ def check_return_eligibility(order_id: int) -> dict:
 
 @tool
 def initiate_refund(order_id: int, reason: str) -> dict:
-    """Issue a full refund for an order. Re-checks policy itself; refuses ineligible orders and refunds over $50."""
+    """Issue a full refund for an order. Re-checks policy itself; refuses ineligible orders and queues refunds over $50 for human approval."""
     return create_refund(order_id, reason)
 
 
