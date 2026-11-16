@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS orders (
     total REAL);
 CREATE TABLE IF NOT EXISTS refunds (
     id INTEGER PRIMARY KEY, order_id INTEGER UNIQUE, amount REAL,
-    reason TEXT, status TEXT, created_at TEXT);
+    reason TEXT, status TEXT, created_at TEXT, reviewer_note TEXT);
 """
 
 CUSTOMERS = [
@@ -81,10 +81,21 @@ def seed(path: Path | str | None = None) -> None:
         conn.executemany("INSERT INTO customers VALUES (?,?,?)", CUSTOMERS)
         conn.executemany("INSERT INTO products VALUES (?,?,?,?,?,?)", PRODUCTS)
         conn.executemany("INSERT INTO orders VALUES (?,?,?,?,?,?,?,?)", ORDERS)
-        conn.executemany("INSERT INTO refunds VALUES (?,?,?,?,?,?)", REFUNDS)
+        conn.executemany(
+            "INSERT INTO refunds (id, order_id, amount, reason, status, created_at) VALUES (?,?,?,?,?,?)", REFUNDS)
     conn.close()
 
 
 def ensure_db() -> None:
     if not DB_PATH.exists():
         seed()
+        return
+    # Light migration for databases created before the HITL feature.
+    conn = get_conn()
+    try:
+        cols = [r["name"] for r in conn.execute("PRAGMA table_info(refunds)")]
+        if "reviewer_note" not in cols:
+            with conn:
+                conn.execute("ALTER TABLE refunds ADD COLUMN reviewer_note TEXT")
+    finally:
+        conn.close()

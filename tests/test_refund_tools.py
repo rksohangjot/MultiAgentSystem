@@ -124,3 +124,49 @@ def test_policy_tool_returns_text():
 
 def test_refund_tools_exposed():
     assert [t.name for t in rt.REFUND_TOOLS] == ["get_return_policy", "check_return_eligibility", "initiate_refund"]
+
+
+# --- human decision on a pending refund ---
+def _pending(order_id=1011):
+    return rt.create_refund(order_id, "changed mind", TODAY)["refund"]["id"]
+
+
+def _row(refund_id):
+    return rt.get_refund(refund_id)
+
+
+def test_approve_completes_refund():
+    rid = _pending()
+    r = rt.decide_refund(rid, True, "looks fine", TODAY)
+    assert r["success"] and _row(rid)["status"] == "completed" and _row(rid)["reviewer_note"] == "looks fine"
+
+
+def test_reject_is_final_and_records_note():
+    rid = _pending()
+    r = rt.decide_refund(rid, False, "item was used", TODAY)
+    assert not r["success"] and _row(rid)["status"] == "rejected"
+    assert "final" in rt.check_eligibility(1011, TODAY)["reason"]
+
+
+def test_decision_is_idempotent():
+    rid = _pending()
+    rt.decide_refund(rid, True, "", TODAY)
+    again = rt.decide_refund(rid, False, "oops", TODAY)  # replay with a different answer
+    assert again["already_decided"] and _row(rid)["status"] == "completed"
+
+
+def test_approval_rechecks_window():
+    rid = _pending()  # order 1011 delivered 2026-11-08
+    r = rt.decide_refund(rid, True, "", date(2026, 12, 20))  # sat in the queue past 30 days
+    assert not r["success"] and _row(rid)["status"] == "rejected"
+    assert "Auto-rejected" in _row(rid)["reviewer_note"]
+
+
+def test_decide_unknown_refund():
+    assert not rt.decide_refund(999, True)["success"]
+
+
+def test_decide_refund_is_not_an_agent_tool():
+    from ecommerce_agents.tools import AGENT_TOOLS
+    all_names = {t.name for tools in AGENT_TOOLS.values() for t in tools}
+    assert "decide_refund" not in all_names

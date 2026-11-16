@@ -32,14 +32,30 @@ def _refund_for(conn, order_id: int):
     return conn.execute("SELECT * FROM refunds WHERE order_id = ?", (order_id,)).fetchone()
 
 
+def _status_problem(order) -> str | None:
+    if order["status"] != "delivered":
+        return f"Order status is '{order['status']}'; only delivered orders can be refunded."
+    return None
+
+
+def _window_problem(order, today: date) -> str | None:
+    if not order["estimated_delivery"]:
+        return "No delivery date on record."
+    delivered = datetime.strptime(order["estimated_delivery"], "%Y-%m-%d").date()
+    days = (today - delivered).days
+    if days > WINDOW_DAYS:
+        return f"Delivered {days} days ago; the return window is {WINDOW_DAYS} days."
+    return None
+
+
 def _eligibility(conn, order_id: int, today: date) -> dict:
     order = _order(conn, order_id)
     if order is None:
         return {"eligible": False, "reason": f"Order {order_id} not found."}
     base = {"order_id": order_id, "amount": order["total"]}
-    if order["status"] != "delivered":
-        return {**base, "eligible": False,
-                "reason": f"Order status is '{order['status']}'; only delivered orders can be refunded."}
+    problem = _status_problem(order)
+    if problem:
+        return {**base, "eligible": False, "reason": problem}
     existing = _refund_for(conn, order_id)
     if existing is not None:
         reasons = {
@@ -48,13 +64,11 @@ def _eligibility(conn, order_id: int, today: date) -> dict:
         }
         return {**base, "eligible": False,
                 "reason": reasons.get(existing["status"], "This order has already been refunded.")}
-    if not order["estimated_delivery"]:
-        return {**base, "eligible": False, "reason": "No delivery date on record."}
+    problem = _window_problem(order, today)
+    if problem:
+        return {**base, "eligible": False, "reason": problem}
     delivered = datetime.strptime(order["estimated_delivery"], "%Y-%m-%d").date()
     days = (today - delivered).days
-    if days > WINDOW_DAYS:
-        return {**base, "eligible": False,
-                "reason": f"Delivered {days} days ago; the return window is {WINDOW_DAYS} days."}
     return {**base, "eligible": True, "reason": f"Delivered {days} days ago, within the {WINDOW_DAYS}-day window.",
             "requires_approval": order["total"] > APPROVAL_THRESHOLD}
 
@@ -113,6 +127,49 @@ def create_refund(order_id: int, reason: str, today: date | None = None) -> dict
                     "error": f"Refunds over ${APPROVAL_THRESHOLD:.0f} need human approval; "
                              "this request has been queued for a human agent."}
         return {"success": True, "already_existed": False, "refund": refund}
+    finally:
+        conn.close()
+
+
+def get_refund(refund_id: int) -> dict | None:
+    """Read one refund row (used by the approval node to show the reviewer)."""
+    db.ensure_db()
+    conn = db.get_conn()
+    try:
+        row = conn.execute("SELECT * FROM refunds WHERE id = ?", (refund_id,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def decide_refund(refund_id: int, approved: bool, note: str = "", today: date | None = None) -> dict:
+    """Apply a human reviewer's decision to a pending refund. NOT an agent tool.
+
+    Idempotent: only a `pending_approval` row can be decided, so a replayed node
+    (LangGraph re-runs a node from the top on resume) never changes a decided refund.
+    Approval re-checks status and window, because the request may have waited a while.
+    """
+    db.ensure_db()
+    today = today or date.today()
+    conn = db.get_conn()
+    try:
+        row = conn.execute("SELECT * FROM refunds WHERE id = ?", (refund_id,)).fetchone()
+        if row is None:
+            return {"success": False, "error": f"Refund {refund_id} not found."}
+        if row["status"] != PENDING:
+            return {"success": False, "already_decided": True, "refund": dict(row),
+                    "error": f"Refund {refund_id} is already {row['status']}."}
+        status, final_note = (COMPLETED if approved else REJECTED), note
+        if approved:
+            order = _order(conn, row["order_id"])
+            problem = _status_problem(order) or _window_problem(order, today)
+            if problem:
+                status, final_note = REJECTED, f"Auto-rejected at approval time: {problem}"
+        with conn:
+            conn.execute("UPDATE refunds SET status = ?, reviewer_note = ? WHERE id = ?",
+                         (status, final_note, refund_id))
+        updated = dict(conn.execute("SELECT * FROM refunds WHERE id = ?", (refund_id,)).fetchone())
+        return {"success": status == COMPLETED, "already_decided": False, "refund": updated}
     finally:
         conn.close()
 
