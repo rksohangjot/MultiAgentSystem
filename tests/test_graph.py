@@ -32,6 +32,24 @@ needs_key = pytest.mark.skipif(not os.getenv("GROQ_API_KEY"), reason="GROQ_API_K
 @pytest.mark.parametrize("text,expected", [
     ("Where is my order 1002?", "order_status"),
     ("Does the rain jacket come in blue?", "product_info"),
+    ("I want to return order 1003", "refund"),
+    ("Can I get a refund for order 1004?", "refund"),
 ])
 def test_live_routing(text, expected):
     assert supervisor.decide([HumanMessage(text)]).next_agent == expected
+
+
+@pytest.mark.llm
+@needs_key
+def test_live_mixed_message_visits_both_agents():
+    from ecommerce_agents.graph import build_graph
+
+    graph = build_graph()
+    cfg = {"configurable": {"thread_id": "mixed-test"}, "recursion_limit": 40}
+    visited = set()
+    for update in graph.stream(
+        {"messages": [HumanMessage("My order 1002 is late and I want my money back")]},
+        cfg, stream_mode="updates",
+    ):
+        visited.update(update.keys())
+    assert {"order_status", "refund"} <= visited
