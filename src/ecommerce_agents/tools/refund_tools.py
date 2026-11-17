@@ -8,9 +8,10 @@ import sqlite3
 from datetime import date, datetime
 from pathlib import Path
 
+from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 
-from ecommerce_agents import db
+from ecommerce_agents import db, identity
 
 WINDOW_DAYS = 30
 APPROVAL_THRESHOLD = 50.0  # refunds above this are queued for human approval
@@ -181,14 +182,18 @@ def get_return_policy() -> str:
 
 
 @tool
-def check_return_eligibility(order_id: int) -> dict:
+def check_return_eligibility(order_id: int, config: RunnableConfig) -> dict:
     """Check whether an order can be refunded under the return policy. Always call this before initiate_refund."""
+    if not identity.owns_order(order_id, identity.current_customer_id(config)):
+        return {"eligible": False, "reason": identity.not_found(order_id)}
     return check_eligibility(order_id)
 
 
 @tool
-def initiate_refund(order_id: int, reason: str) -> dict:
+def initiate_refund(order_id: int, reason: str, config: RunnableConfig) -> dict:
     """Issue a full refund for an order. Re-checks policy itself; refuses ineligible orders and queues refunds over $50 for human approval."""
+    if not identity.owns_order(order_id, identity.current_customer_id(config)):
+        return {"success": False, "error": identity.not_found(order_id)}
     return create_refund(order_id, reason)
 
 

@@ -1,7 +1,8 @@
 """Read-only order tools. Used by the Order-Status agent."""
+from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 
-from ecommerce_agents import db
+from ecommerce_agents import db, identity
 
 
 def lookup_order(order_id: int) -> dict:
@@ -23,8 +24,10 @@ def lookup_order(order_id: int) -> dict:
 
 
 @tool
-def get_order_status(order_id: int) -> dict:
+def get_order_status(order_id: int, config: RunnableConfig) -> dict:
     """Get status, tracking number, product and estimated delivery for an order ID."""
+    if not identity.owns_order(order_id, identity.current_customer_id(config)):
+        return {"error": identity.not_found(order_id)}
     return lookup_order(order_id)
 
 

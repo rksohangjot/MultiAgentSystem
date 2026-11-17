@@ -9,6 +9,8 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from ecommerce_agents import db
 from ecommerce_agents.agents import refund
 
+OWNER_4 = {"configurable": {"customer_id": 4}}  # customer 4 owns order 1008
+
 
 class ScriptedModel(BaseChatModel):
     """Plays back AIMessages in order; if `loop`, repeats the last forever."""
@@ -65,7 +67,7 @@ def test_happy_path_check_then_refund(monkeypatch):
     ])
     monkeypatch.setattr(refund, "get_llm", lambda *a, **k: model)
     node = refund.build_refund_agent()
-    out = node({"messages": [HumanMessage("Refund order 1008, it is broken")]}, {})
+    out = node({"messages": [HumanMessage("Refund order 1008, it is broken")]}, OWNER_4)
     assert out["messages"][-1].content.startswith("Your refund")
     assert [r["order_id"] for r in refunds()] == [1010, 1008]
 
@@ -74,7 +76,7 @@ def test_loop_cap_triggers_human_handoff(monkeypatch):
     model = ScriptedModel(script=[call("check_return_eligibility", {"order_id": 1008}, "x")], loop=True)
     monkeypatch.setattr(refund, "get_llm", lambda *a, **k: model)
     node = refund.build_refund_agent()
-    out = node({"messages": [HumanMessage("refund 1008")]}, {"recursion_limit": 25})
+    out = node({"messages": [HumanMessage("refund 1008")]}, {**OWNER_4, "recursion_limit": 25})
     assert out["messages"][-1].content == refund.HANDOFF
     assert model.i <= refund.RECURSION_LIMIT  # capped by the agent's own limit, not the outer 25
     assert refunds() == [refunds()[0]] and len(refunds()) == 1  # nothing written
@@ -87,7 +89,7 @@ needs_key = pytest.mark.skipif(not os.getenv("GROQ_API_KEY"), reason="GROQ_API_K
 @needs_key
 def test_live_explicit_refund_issues_refund():
     node = refund.build_refund_agent()
-    node({"messages": [HumanMessage("Please refund order 1008, the case is cracked.")]}, {})
+    node({"messages": [HumanMessage("Please refund order 1008, the case is cracked.")]}, OWNER_4)
     assert 1008 in [r["order_id"] for r in refunds()]
 
 
@@ -95,7 +97,7 @@ def test_live_explicit_refund_issues_refund():
 @needs_key
 def test_live_question_does_not_issue_refund():
     node = refund.build_refund_agent()
-    node({"messages": [HumanMessage("Am I able to return order 1008?")]}, {})
+    node({"messages": [HumanMessage("Am I able to return order 1008?")]}, OWNER_4)
     assert 1008 not in [r["order_id"] for r in refunds()]
 
 
@@ -103,7 +105,7 @@ def test_live_question_does_not_issue_refund():
 @needs_key
 def test_live_over_50_queued_not_paid():
     node = refund.build_refund_agent()
-    node({"messages": [HumanMessage("Refund order 1011 please, I changed my mind.")]}, {})
+    node({"messages": [HumanMessage("Refund order 1011 please, I changed my mind.")]}, {"configurable": {"customer_id": 1}})
     statuses = [r["status"] for r in refunds() if r["order_id"] == 1011]
     assert "completed" not in statuses  # never paid out without a human
     assert statuses in ([], ["pending_approval"])

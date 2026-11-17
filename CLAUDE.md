@@ -19,6 +19,7 @@ Multi-agent e-commerce support system (learning-first, aimed at AI roles). One c
 
 ### Layout (`src/ecommerce_agents/`)
 - `db.py`: SQLite with seeded mock data (5 customers, 10 products, 10 orders in various states). `ensure_db()` creates the DB on first use; `seed()` recreates it.
+- `identity.py`: customer identity. `owns_order(order_id, customer_id)`, `find_customer_by_email`. `customer_id` comes from the run config (`config["configurable"]["customer_id"]`), never from the LLM; tools fail closed without it, and a non-owned order returns the same "not found" as a missing one.
 - `state.py`: shared `AgentState` (messages, `next_agent`, `iterations`). Agents communicate only through this.
 - `llm.py`: Groq model factory, configured via `.env`.
 - `supervisor.py`: structured-output routing to `order_status`, `product_info`, `refund` or `FINISH`. Answers greetings/off-topic directly. Loop prevention: capped at `MAX_ITERATIONS = 4`, then escalates to a human.
@@ -28,20 +29,21 @@ Multi-agent e-commerce support system (learning-first, aimed at AI roles). One c
 - `tools/`: DB tools; per-agent allowlists (`AGENT_TOOLS`) ensure only the refund agent holds `initiate_refund`. Eligibility is deterministic code; refunds >$50 are saved as `pending_approval` (not paid) and decided by a human via `decide_refund` (plain code, NOT an agent tool; idempotent; re-checks the window; rejection is final).
 - `approval.py`: `approval_node` pauses with LangGraph `interrupt()` for a reviewer decision `{approved, note}`, applies it via `decide_refund`, tells the customer. Everything before `interrupt()` only reads (a resumed node re-runs from the top).
 - `graph.py`: supervisor -> specialists, each hands control back to the supervisor; `refund` -> `approval` when a refund is pending. `build_graph()` defaults to in-memory checkpointer; `sqlite_checkpointer(path)` is durable (a pause survives restart).
-- `chat_loop.py`: CLI logic (`stream_turn`, `cli_review`, `resume_pending`) so it is testable.
+- `chat_loop.py`: CLI logic (`stream_turn`, `cli_review`, `resume_pending`, `sign_in` email stand-in login, `session_config` per-customer thread) so it is testable.
 - `scripts/chat.py`: thin CLI over `chat_loop.py`; prints routing, you play the human reviewer for refunds >$50; state in `data/checkpoints.db`.
 
 ### Tests (`tests/`)
 - `test_tools.py`: order found/missing, product search, no match (temp seeded DB).
 - `test_graph.py`: iteration cap, direct greeting reply, route mapping (stubbed router), plus live routing tests (order, product, 2 refund) and a live mixed-message test (order_status + refund).
 - `test_refund_graph.py` and refund tool/permission tests (stubbed LLM): eligibility, idempotency, $50 cap, allowlists, mixed request order_status -> refund.
+- `test_identity.py`: ownership checks, fail-closed, LLM can't set customer_id, sign-in.
 - `test_approval.py`, HITL section of `test_refund_graph.py`, `test_chat_loop.py`: pause/approve/reject, restart resume, reviewer prompt, plus a live over-$50 test.
-- Last run: 66 passed, 9 live tests (need GROQ_API_KEY) pass on gpt-oss-120b.
+- Last run: 83 passed incl. 9 live tests (need GROQ_API_KEY) pass on gpt-oss-120b.
 
 ### Not built yet
 - MCP servers for orders/catalog
 - Real reviewer UI / auth for reviewers (CLI user is the reviewer for now; arrives with Streamlit)
-- Guardrails (injection, PII, output checks)
+- Guardrails remaining (in order): input guard (injection heuristics, PII redaction), output guard (no unbacked refund claims, no leaks). Identity check is DONE.
 - Failure handling (retries/backoff, 429, timeouts, escalation)
 - Tracing (Langfuse) and evals
 - Streamlit UI
@@ -60,7 +62,7 @@ Design decisions:
 - "Today" is injectable (default real date) so tests are deterministic.
 - Full refunds only. No partial refunds or multi-item orders.
 - Refund agent tools: `get_order_status`, `get_return_policy`, `check_return_eligibility`, `initiate_refund`. No product lookup.
-- Identity check deferred: the order ID alone is accepted for now (known gap; revisit with guardrails/permissions).
+- Identity check: done (guardrails step 1); email lookup is a stand-in for real auth.
 - Add a per-agent tool allowlist with a test that only the refund agent holds `initiate_refund`.
 - Cap the refund agent's tool calls/recursion in addition to the supervisor's 4-turn cap.
 

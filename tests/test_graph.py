@@ -45,7 +45,7 @@ def test_live_mixed_message_visits_both_agents():
     from ecommerce_agents.graph import build_graph
 
     graph = build_graph()
-    cfg = {"configurable": {"thread_id": "mixed-test"}, "recursion_limit": 40}
+    cfg = {"configurable": {"thread_id": "mixed-test", "customer_id": 1}, "recursion_limit": 40}
     visited = set()
     for update in graph.stream(
         {"messages": [HumanMessage("My order 1002 is late and I want my money back")]},

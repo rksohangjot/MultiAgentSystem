@@ -30,7 +30,7 @@ def stub_models(monkeypatch, *, order=None, refund_model=None):
 
 
 def run(text):
-    cfg = {"configurable": {"thread_id": "t"}, "recursion_limit": 25}
+    cfg = {"configurable": {"thread_id": "t", "customer_id": 4}, "recursion_limit": 25}  # 4 owns order 1008
     return build_graph().invoke({"messages": [HumanMessage(text)], "iterations": 0}, cfg)
 
 
@@ -108,7 +108,8 @@ def big_refund_model():
     ])
 
 
-CFG = {"configurable": {"thread_id": "hitl"}, "recursion_limit": 25}
+# customer 1 owns order 1011
+CFG = {"configurable": {"thread_id": "hitl", "customer_id": 1}, "recursion_limit": 25}
 
 
 def start_big_refund(monkeypatch, graph_decisions):

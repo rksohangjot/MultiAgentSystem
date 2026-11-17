@@ -2,6 +2,10 @@
 from langchain_core.messages import HumanMessage
 from langgraph.types import Command
 
+from ecommerce_agents import identity
+
+MAX_SIGN_IN_ATTEMPTS = 3
+
 
 def stream_turn(graph, graph_input, cfg, review, emit=print) -> None:
     """Run one turn. Each time the graph pauses for human approval, ask `review` and resume.
@@ -57,3 +61,25 @@ def cli_review(payload: dict, ask=input, emit=print) -> dict:
             return {"approved": True, "note": ask("  note (optional): ").strip()}
         if answer in {"n", "no"}:
             return {"approved": False, "note": ask("  reason for rejecting: ").strip()}
+
+
+def sign_in(ask=input, emit=print) -> dict | None:
+    """Stand-in login: ask for an email, return the customer row or None after 3 misses.
+
+    Real authentication arrives with the Streamlit UI; the rest of the system only
+    needs the resulting customer id.
+    """
+    for _ in range(MAX_SIGN_IN_ATTEMPTS):
+        customer = identity.find_customer_by_email(ask("Email: "))
+        if customer:
+            emit(f"Signed in as {customer['name']}.")
+            return customer
+        emit("No account with that email.")
+    return None
+
+
+def session_config(customer: dict) -> dict:
+    """Run config for one customer. The thread is per customer so chats (and pending
+    approvals) are never shared; customer_id is read by the tools, never by the LLM."""
+    return {"configurable": {"thread_id": f"cli-{customer['id']}", "customer_id": customer["id"]},
+            "recursion_limit": 25}
