@@ -95,3 +95,107 @@ def test_programming_errors_are_not_api_errors():
 def test_reason_label():
     assert errors.reason(status_error(groq.RateLimitError, 429)) == "transient:RateLimitError"
     assert errors.reason(status_error(groq.AuthenticationError, 401)) == "permanent:AuthenticationError"
+
+
+# --- graph: failures after retries become a human handoff ------------------------------------
+from langchain_core.messages import AIMessage, HumanMessage  # noqa: E402
+
+from ecommerce_agents import supervisor  # noqa: E402
+from ecommerce_agents.graph import build_graph  # noqa: E402
+from ecommerce_agents.resilience import HANDOFF  # noqa: E402
+from tests.test_refund_agent import ScriptedModel, call  # noqa: E402
+from tests.test_refund_graph import run, seeded, stub_models, stub_supervisor  # noqa: E402,F401
+
+
+class RaisingModel(ScriptedModel):
+    """Like ScriptedModel, but a script item that is an exception is raised instead of returned."""
+
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+        item = self.script[min(self.i, len(self.script) - 1)]
+        if isinstance(item, BaseException):
+            self.i += 1
+            raise item
+        return super()._generate(messages, stop, run_manager, **kwargs)
+
+
+RATE_LIMIT = status_error(groq.RateLimitError, 429)
+AUTH = status_error(groq.AuthenticationError, 401)
+
+
+def ai_texts(out):
+    return [m.content for m in out["messages"] if m.type == "ai" and m.content]
+
+
+def test_supervisor_failure_ends_turn_with_one_handoff(monkeypatch):
+    def down(messages):
+        raise RATE_LIMIT
+    monkeypatch.setattr(supervisor, "decide", down)
+    stub_models(monkeypatch)
+    out = run("where is order 1008")
+    assert ai_texts(out) == [HANDOFF] and out["escalated"] is True
+
+
+def test_specialist_failure_ends_turn_without_asking_supervisor_again(monkeypatch):
+    calls = []
+    stub_supervisor(monkeypatch, ["order_status", "FINISH"])
+    real = supervisor.decide
+    monkeypatch.setattr(supervisor, "decide", lambda m: (calls.append(1), real(m))[1])
+    stub_models(monkeypatch, order=RaisingModel(script=[RATE_LIMIT]))
+    out = run("where is order 1008")
+    assert ai_texts(out) == [HANDOFF] and len(calls) == 1  # supervisor ran once, not again
+
+
+def test_refund_agent_failure_hands_off_and_writes_nothing(monkeypatch):
+    stub_supervisor(monkeypatch, ["refund", "FINISH"])
+    stub_models(monkeypatch, refund_model=RaisingModel(script=[status_error(groq.InternalServerError, 503)]))
+    out = run("refund order 1008")
+    assert ai_texts(out) == [HANDOFF]
+    conn = __import__("ecommerce_agents.db", fromlist=["db"]).get_conn()
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM refunds WHERE order_id = 1008").fetchone()[0] == 0
+    finally:
+        conn.close()
+
+
+def test_permanent_error_also_hands_off_but_logs_error(monkeypatch, caplog):
+    stub_supervisor(monkeypatch, ["order_status"])
+    stub_models(monkeypatch, order=RaisingModel(script=[AUTH]))
+    with caplog.at_level("WARNING"):
+        out = run("where is order 1008")
+    assert ai_texts(out) == [HANDOFF]
+    assert any(r.levelname == "ERROR" and "permanent:AuthenticationError" in r.message for r in caplog.records)
+
+
+def test_transient_error_logs_warning(monkeypatch, caplog):
+    def down(messages):
+        raise RATE_LIMIT
+    monkeypatch.setattr(supervisor, "decide", down)
+    with caplog.at_level("WARNING"):
+        run("hi")
+    assert any(r.levelname == "WARNING" and "transient:RateLimitError" in r.message for r in caplog.records)
+
+
+def test_bugs_are_not_swallowed(monkeypatch):
+    def bug(messages):
+        raise KeyError("bug")
+    monkeypatch.setattr(supervisor, "decide", bug)
+    with pytest.raises(KeyError):
+        run("hi")
+
+
+def test_escalated_flag_resets_next_turn(monkeypatch):
+    state = {"n": 0}
+
+    def flaky(messages):
+        state["n"] += 1
+        if state["n"] == 1:
+            raise RATE_LIMIT
+        return supervisor.RouteDecision(next_agent="FINISH", reply="Hello!")
+    monkeypatch.setattr(supervisor, "decide", flaky)
+    g = build_graph()
+    cfg = {"configurable": {"thread_id": "r", "customer_id": 4}, "recursion_limit": 25}
+    from ecommerce_agents.chat_loop import new_message
+    first = g.invoke(new_message("hi"), cfg)
+    second = g.invoke(new_message("hi again"), cfg)
+    assert first["escalated"] is True and second["escalated"] is False
+    assert ai_texts(second)[-1] == "Hello!"

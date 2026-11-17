@@ -12,13 +12,13 @@ from ecommerce_agents.state import AgentState
 
 def input_guard_node(state: AgentState, config) -> dict:
     last = state["messages"][-1] if state["messages"] else None
-    clean = {"guard_blocked": False, "guard_notice": None}
+    clean = {"guard_blocked": False, "guard_notice": None, "escalated": False}
     if not isinstance(last, HumanMessage) or not isinstance(last.content, str):
         return clean
 
     reason = guards.detect_injection(last.content)
     if reason:
-        return {"guard_blocked": True, "guard_notice": None,
+        return {"guard_blocked": True, "guard_notice": None, "escalated": False,
                 "messages": [HumanMessage(content=guards.REMOVED, id=last.id),
                              AIMessage(content=guards.REFUSAL, name="input_guard")]}
 
@@ -26,7 +26,7 @@ def input_guard_node(state: AgentState, config) -> dict:
     pii = guards.redact_pii(last.content, own_email=customer["email"] if customer else None)
     if not pii.found:
         return clean
-    return {"guard_blocked": False, "guard_notice": guards.pii_notice(pii.found),
+    return {"guard_blocked": False, "guard_notice": guards.pii_notice(pii.found), "escalated": False,
             "messages": [HumanMessage(content=pii.text, id=last.id)]}
 
 
