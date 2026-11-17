@@ -2,7 +2,7 @@
 from langchain_core.messages import HumanMessage
 from langgraph.types import Command
 
-from ecommerce_agents import identity
+from ecommerce_agents import guards, identity
 
 MAX_SIGN_IN_ATTEMPTS = 3
 
@@ -19,6 +19,8 @@ def stream_turn(graph, graph_input, cfg, review, emit=print) -> None:
                 if node == "__interrupt__":
                     paused = upd[0].value
                     continue
+                if node == "input_guard" and (upd or {}).get("guard_notice"):
+                    emit(f"  [notice] {upd['guard_notice']}")
                 if node == "supervisor":
                     emit(f"  [supervisor -> {(upd or {}).get('next_agent')}]")
                 for m in (upd or {}).get("messages", []):
@@ -46,9 +48,15 @@ def resume_pending(graph, cfg, review, emit=print) -> bool:
     return True
 
 
-def new_message(text: str) -> dict:
-    # Reset the per-turn loop counter; messages persist via the checkpointer.
-    return {"messages": [HumanMessage(text)], "iterations": 0}
+def new_message(text: str, customer: dict | None = None) -> dict:
+    """Input for one turn. Resets the per-turn loop counter.
+
+    PII is redacted here too, before the text enters the graph: LangGraph writes the raw
+    input to the checkpoint before any node runs, so the node alone cannot keep it out.
+    (The graph's input_guard node still redacts, as the check for every other entry point.)
+    """
+    own = customer["email"] if customer else None
+    return {"messages": [HumanMessage(guards.redact_pii(text, own_email=own).text)], "iterations": 0}
 
 
 def cli_review(payload: dict, ask=input, emit=print) -> dict:

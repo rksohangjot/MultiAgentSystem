@@ -24,7 +24,7 @@ def main():
         if text.lower() in {"quit", "exit"}:
             break
         if text:
-            stream_turn(graph, new_message(text), cfg, cli_review)
+            stream_turn(graph, new_message(text, customer), cfg, cli_review)
 
 
 if __name__ == "__main__":

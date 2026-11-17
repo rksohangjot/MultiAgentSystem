@@ -20,7 +20,9 @@ Multi-agent e-commerce support system (learning-first, aimed at AI roles). One c
 ### Layout (`src/ecommerce_agents/`)
 - `db.py`: SQLite with seeded mock data (5 customers, 10 products, 10 orders in various states). `ensure_db()` creates the DB on first use; `seed()` recreates it.
 - `identity.py`: customer identity. `owns_order(order_id, customer_id)`, `find_customer_by_email`. `customer_id` comes from the run config (`config["configurable"]["customer_id"]`), never from the LLM; tools fail closed without it, and a non-owned order returns the same "not found" as a missing one.
-- `state.py`: shared `AgentState` (messages, `next_agent`, `iterations`). Agents communicate only through this.
+- `guards.py`: pure input guard. `detect_injection` (regex heuristics, no LLM), `redact_pii` (Luhn-checked cards, SSN, phone, other people's emails; own email kept).
+- `input_guard.py`: first graph node. Injection -> message replaced, refusal, turn ends (supervisor never runs). PII -> message rewritten redacted + `guard_notice` shown to the customer. `new_message()` also redacts, because LangGraph checkpoints the raw input before any node runs.
+- `state.py`: shared `AgentState` (messages, `next_agent`, `iterations`, `guard_blocked`, `guard_notice`, `pending_refund_id`). Agents communicate only through this.
 - `llm.py`: Groq model factory, configured via `.env`.
 - `supervisor.py`: structured-output routing to `order_status`, `product_info`, `refund` or `FINISH`. Answers greetings/off-topic directly. Loop prevention: capped at `MAX_ITERATIONS = 4`, then escalates to a human.
 - `agents/order_status.py`: ReAct agent with read-only tool `get_order_status`.
@@ -36,14 +38,15 @@ Multi-agent e-commerce support system (learning-first, aimed at AI roles). One c
 - `test_tools.py`: order found/missing, product search, no match (temp seeded DB).
 - `test_graph.py`: iteration cap, direct greeting reply, route mapping (stubbed router), plus live routing tests (order, product, 2 refund) and a live mixed-message test (order_status + refund).
 - `test_refund_graph.py` and refund tool/permission tests (stubbed LLM): eligibility, idempotency, $50 cap, allowlists, mixed request order_status -> refund.
+- `test_input_guard.py`: injection attack/benign tables, PII cases, graph wiring (blocked before supervisor, redacted before supervisor and in checkpoints, flags reset).
 - `test_identity.py`: ownership checks, fail-closed, LLM can't set customer_id, sign-in.
 - `test_approval.py`, HITL section of `test_refund_graph.py`, `test_chat_loop.py`: pause/approve/reject, restart resume, reviewer prompt, plus a live over-$50 test.
-- Last run: 76 passed incl. 9 live tests (need GROQ_API_KEY) pass on gpt-oss-120b.
+- Last run: 105 passed incl. 9 live tests (need GROQ_API_KEY) pass on gpt-oss-120b.
 
 ### Not built yet
 - MCP servers for orders/catalog
 - Real reviewer UI / auth for reviewers (CLI user is the reviewer for now; arrives with Streamlit)
-- Guardrails remaining (in order): input guard (injection heuristics, PII redaction), output guard (no unbacked refund claims, no leaks). Identity check is DONE.
+- Guardrails remaining: output guard (no unbacked refund claims, no leaks). Identity check and input guard are DONE. Known limit: heuristics are regex, so paraphrased injections can slip past; tool permissions are the backstop.
 - Failure handling (retries/backoff, 429, timeouts, escalation)
 - Tracing (Langfuse) and evals
 - Streamlit UI

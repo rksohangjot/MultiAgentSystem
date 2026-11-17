@@ -20,6 +20,18 @@ def find_customer_by_email(email: str) -> dict | None:
         conn.close()
 
 
+def get_customer(customer_id: int | None) -> dict | None:
+    if customer_id is None:
+        return None
+    db.ensure_db()
+    conn = db.get_conn()
+    try:
+        row = conn.execute("SELECT id, name, email FROM customers WHERE id = ?", (customer_id,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
 def current_customer_id(config) -> int | None:
     return ((config or {}).get("configurable") or {}).get("customer_id")
 
