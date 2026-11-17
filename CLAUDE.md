@@ -15,13 +15,14 @@ Multi-agent e-commerce support system (learning-first, aimed at AI roles). One c
 - Tests: `uv run pytest` (tests marked `llm` call the real Groq API and are skipped without `GROQ_API_KEY`)
 - Config: copy `.env.example` to `.env` and set `GROQ_API_KEY` (and optionally `GROQ_MODEL`)
 
-## Status: Day 2 built (Refund agent + human-in-the-loop approval)
+## Status: Day 3 built (Guardrails: identity, input guard, output guard)
 
 ### Layout (`src/ecommerce_agents/`)
 - `db.py`: SQLite with seeded mock data (5 customers, 10 products, 10 orders in various states). `ensure_db()` creates the DB on first use; `seed()` recreates it.
 - `identity.py`: customer identity. `owns_order(order_id, customer_id)`, `find_customer_by_email`. `customer_id` comes from the run config (`config["configurable"]["customer_id"]`), never from the LLM; tools fail closed without it, and a non-owned order returns the same "not found" as a missing one.
 - `guards.py`: pure input guard. `detect_injection` (regex heuristics, no LLM), `redact_pii` (Luhn-checked cards, SSN, phone, other people's emails; own email kept).
 - `input_guard.py`: first graph node. Injection -> message replaced, refusal, turn ends (supervisor never runs). PII -> message rewritten redacted + `guard_notice` shown to the customer. `new_message()` also redacts, because LangGraph checkpoints the raw input before any node runs.
+- `output_guard.py`: checks every reply before the customer sees it (deterministic). Blocks unbacked refund claims (says refunded/approved but no `completed` refund for that customer's order; hedged/negated sentences are ignored), internal leaks (tool names, prompt text, state fields), other customers' emails/names, raw card/SSN/phone. A blocked reply is replaced (same id) by `FALLBACK` (escalates to a human). `guarded(node)` wraps supervisor, order_status, product_info and refund nodes in `graph.py`; the approval node is code-generated from the DB so it is not wrapped.
 - `state.py`: shared `AgentState` (messages, `next_agent`, `iterations`, `guard_blocked`, `guard_notice`, `pending_refund_id`). Agents communicate only through this.
 - `llm.py`: Groq model factory, configured via `.env`.
 - `supervisor.py`: structured-output routing to `order_status`, `product_info`, `refund` or `FINISH`. Answers greetings/off-topic directly. Loop prevention: capped at `MAX_ITERATIONS = 4`, then escalates to a human.
@@ -38,15 +39,16 @@ Multi-agent e-commerce support system (learning-first, aimed at AI roles). One c
 - `test_tools.py`: order found/missing, product search, no match (temp seeded DB).
 - `test_graph.py`: iteration cap, direct greeting reply, route mapping (stubbed router), plus live routing tests (order, product, 2 refund) and a live mixed-message test (order_status + refund).
 - `test_refund_graph.py` and refund tool/permission tests (stubbed LLM): eligibility, idempotency, $50 cap, allowlists, mixed request order_status -> refund.
+- `test_output_guard.py`: claim vs DB (pending/rejected don't back a paid claim), hedge table, leaks, other-customer data, graph replacement, honest flow not blocked.
 - `test_input_guard.py`: injection attack/benign tables, PII cases, graph wiring (blocked before supervisor, redacted before supervisor and in checkpoints, flags reset).
 - `test_identity.py`: ownership checks, fail-closed, LLM can't set customer_id, sign-in.
 - `test_approval.py`, HITL section of `test_refund_graph.py`, `test_chat_loop.py`: pause/approve/reject, restart resume, reviewer prompt, plus a live over-$50 test.
-- Last run: 105 passed incl. 9 live tests (need GROQ_API_KEY) pass on gpt-oss-120b.
+- Last run: 133 passed incl. 9 live tests (need GROQ_API_KEY) pass on gpt-oss-120b.
 
 ### Not built yet
 - MCP servers for orders/catalog
 - Real reviewer UI / auth for reviewers (CLI user is the reviewer for now; arrives with Streamlit)
-- Guardrails remaining: output guard (no unbacked refund claims, no leaks). Identity check and input guard are DONE. Known limit: heuristics are regex, so paraphrased injections can slip past; tool permissions are the backstop.
+- Guardrails: all three layers DONE (identity, input guard, output guard). Known limits: heuristics are regex, so paraphrased injections and oddly worded refund claims can slip past; tool permissions and code-enforced policy are the backstop. Blocked replies are only logged (`logging`), not traced yet.
 - Failure handling (retries/backoff, 429, timeouts, escalation)
 - Tracing (Langfuse) and evals
 - Streamlit UI
@@ -56,7 +58,7 @@ Multi-agent e-commerce support system (learning-first, aimed at AI roles). One c
 ## Notes
 - Git repo on branch `main`, remote `origin` = https://github.com/rksohangjot/MultiAgentSystem.git
 - Design constraints: only the Refund agent should have write tools; use a stronger model as eval judge; never cut evals if the schedule slips.
-- Decision: until human-in-the-loop approval exists, `initiate_refund` must refuse refunds over $50 with a "needs human approval" message (stopgap). Superseded: HITL approval is built (`approval.py`); >$50 refunds are queued and decided by a human. Next feature: guardrails (injection, PII, output checks) / identity check.
+- Decision: until human-in-the-loop approval exists, `initiate_refund` must refuse refunds over $50 with a "needs human approval" message (stopgap). Superseded: HITL approval is built (`approval.py`); >$50 refunds are queued and decided by a human. Guardrails are built. Next feature: failure handling (retries/backoff, 429, timeouts, escalation).
 
 ## Approved plan: Returns/Refund agent (done; kept for reference)
 Design decisions:
