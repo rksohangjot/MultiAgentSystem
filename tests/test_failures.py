@@ -199,3 +199,48 @@ def test_escalated_flag_resets_next_turn(monkeypatch):
     second = g.invoke(new_message("hi again"), cfg)
     assert first["escalated"] is True and second["escalated"] is False
     assert ai_texts(second)[-1] == "Hello!"
+
+
+# --- gap fix: a refund queued before the run died still reaches human approval ---------------------
+from langgraph.types import Command  # noqa: E402
+
+from ecommerce_agents.tools import refund_tools as rt  # noqa: E402
+from tests.test_refund_graph import CFG, frozen_today  # noqa: E402,F401
+
+
+def start(monkeypatch, model):
+    stub_supervisor(monkeypatch, ["refund", "FINISH"])
+    stub_models(monkeypatch, refund_model=model)
+    g = build_graph()
+    return g, g.invoke({"messages": [HumanMessage("Refund order 1011")], "iterations": 0}, CFG)
+
+
+def test_model_failure_after_queueing_refund_still_pauses_for_approval(monkeypatch, frozen_today):
+    model = RaisingModel(script=[call("initiate_refund", {"order_id": 1011, "reason": "x"}, "b"), RATE_LIMIT])
+    g, out = start(monkeypatch, model)
+    payload = out["__interrupt__"][0].value  # paused at the approval node, not lost
+    assert payload["order_id"] == 1011
+    out = g.invoke(Command(resume={"approved": True, "note": "ok"}), CFG)
+    assert rt.get_refund(payload["refund_id"])["status"] == "completed"
+    texts = ai_texts(out)
+    assert texts[-2] == HANDOFF and "approved" in texts[-1]
+    assert texts.count(HANDOFF) == 1  # supervisor was not asked again after the outage
+    assert g.get_state(CFG).next == ()
+
+
+def test_loop_cap_after_queueing_refund_still_pauses_for_approval(monkeypatch, frozen_today):
+    model = ScriptedModel(script=[call("initiate_refund", {"order_id": 1011, "reason": "x"}, "b"),
+                                  call("check_return_eligibility", {"order_id": 1011}, "c")], loop=True)
+    g, out = start(monkeypatch, model)
+    assert out["__interrupt__"][0].value["order_id"] == 1011
+
+
+def test_failure_with_nothing_queued_still_just_ends(monkeypatch, frozen_today):
+    g, out = start(monkeypatch, RaisingModel(script=[RATE_LIMIT]))
+    assert "__interrupt__" not in out and ai_texts(out) == [HANDOFF]
+
+
+def test_pending_refund_for_customer_is_scoped_to_that_customer(frozen_today):
+    rt.create_refund(1011, "x", rt.date(2026, 11, 13))  # customer 1's order, over $50 -> pending
+    assert rt.pending_refund_for_customer(1) is not None
+    assert rt.pending_refund_for_customer(4) is None and rt.pending_refund_for_customer(None) is None

@@ -5,8 +5,10 @@ from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.errors import GraphRecursionError
 from langgraph.prebuilt import create_react_agent
 
+from ecommerce_agents import identity
 from ecommerce_agents.llm import get_llm
 from ecommerce_agents.tools import AGENT_TOOLS
+from ecommerce_agents.tools.refund_tools import pending_refund_for_customer
 
 # Hard cap on the ReAct loop (loop prevention). ~3 tool round-trips + final answer.
 RECURSION_LIMIT = 8
@@ -50,6 +52,16 @@ def pending_refund_id(new_messages) -> int | None:
     return None
 
 
+def orphaned_refund_update(state, config) -> dict:
+    """Route a refund that was queued before the run died to the approval node.
+
+    When the run fails (loop cap or model outage) its messages are lost, so the graph never
+    sees `initiate_refund`'s result. The database still has the `pending_approval` row.
+    """
+    queued = pending_refund_for_customer(identity.current_customer_id(config))
+    return {"pending_refund_id": queued} if queued is not None else {}
+
+
 def build_refund_agent():
     """Return a graph node that runs the ReAct agent with a loop cap and human handoff.
 
@@ -62,9 +74,11 @@ def build_refund_agent():
         try:
             result = agent.invoke(state, {**config, "recursion_limit": RECURSION_LIMIT})
         except GraphRecursionError:
-            return {"messages": [AIMessage(content=HANDOFF, name="refund")]}
+            return {"messages": [AIMessage(content=HANDOFF, name="refund")],
+                    **orphaned_refund_update(state, config)}
         if str(result["messages"][-1].content).startswith(OUT_OF_STEPS_PREFIX):
-            return {"messages": [AIMessage(content=HANDOFF, name="refund")]}
+            return {"messages": [AIMessage(content=HANDOFF, name="refund")],
+                    **orphaned_refund_update(state, config)}
         update = {"messages": result["messages"]}
         # Only this run's messages: history may hold an older, already-decided request.
         queued = pending_refund_id(result["messages"][len(state["messages"]):])

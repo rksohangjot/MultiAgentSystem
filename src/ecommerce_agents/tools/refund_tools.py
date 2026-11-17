@@ -143,6 +143,26 @@ def get_refund(refund_id: int) -> dict | None:
         conn.close()
 
 
+def pending_refund_for_customer(customer_id: int | None) -> int | None:
+    """Oldest refund of this customer still waiting for a human decision, or None.
+
+    Used when a refund run dies after `initiate_refund` queued a refund but before the
+    graph noticed: that row must still reach the approval node, not sit in the DB unseen.
+    """
+    if customer_id is None:
+        return None
+    db.ensure_db()
+    conn = db.get_conn()
+    try:
+        row = conn.execute(
+            "SELECT r.id FROM refunds r JOIN orders o ON o.id = r.order_id "
+            "WHERE o.customer_id = ? AND r.status = ? ORDER BY r.id LIMIT 1",
+            (customer_id, PENDING)).fetchone()
+        return row["id"] if row else None
+    finally:
+        conn.close()
+
+
 def decide_refund(refund_id: int, approved: bool, note: str = "", today: date | None = None) -> dict:
     """Apply a human reviewer's decision to a pending refund. NOT an agent tool.
 

@@ -18,8 +18,12 @@ log = logging.getLogger(__name__)
 HANDOFF = "Sorry, I'm having technical trouble right now. Let me get a human to help."
 
 
-def escalate_on_api_error(node, name: str):
-    """Wrap a `(state, config) -> update` node. `name` labels the node in logs and messages."""
+def escalate_on_api_error(node, name: str, extra=None):
+    """Wrap a `(state, config) -> update` node. `name` labels the node in logs and messages.
+
+    `extra(state, config) -> dict` adds node-specific state to the handoff update (the refund
+    node uses it to keep a queued refund reachable by the approval node).
+    """
     def wrapper(state, config):
         try:
             return node(state, config)
@@ -28,6 +32,7 @@ def escalate_on_api_error(node, name: str):
                 raise
             level = logging.WARNING if errors.is_transient(exc) else logging.ERROR
             log.log(level, "node %s failed (%s); escalating to a human", name, errors.reason(exc))
-            return {"messages": [AIMessage(content=HANDOFF, name=name)],
-                    "escalated": True, "next_agent": "FINISH"}
+            update = {"messages": [AIMessage(content=HANDOFF, name=name)],
+                      "escalated": True, "next_agent": "FINISH"}
+            return {**update, **extra(state, config)} if extra else update
     return wrapper
