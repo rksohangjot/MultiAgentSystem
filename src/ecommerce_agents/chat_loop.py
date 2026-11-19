@@ -2,7 +2,7 @@
 from langchain_core.messages import HumanMessage
 from langgraph.types import Command
 
-from ecommerce_agents import guards, identity
+from ecommerce_agents import guards, identity, tracing
 
 MAX_SIGN_IN_ATTEMPTS = 3
 
@@ -88,6 +88,18 @@ def sign_in(ask=input, emit=print) -> dict | None:
 
 def session_config(customer: dict) -> dict:
     """Run config for one customer. The thread is per customer so chats (and pending
-    approvals) are never shared; customer_id is read by the tools, never by the LLM."""
-    return {"configurable": {"thread_id": f"cli-{customer['id']}", "customer_id": customer["id"]},
-            "recursion_limit": 25}
+    approvals) are never shared; customer_id is read by the tools, never by the LLM.
+
+    When Langfuse is configured, the handler goes in `callbacks` and the session/user ids in
+    `metadata`, so every turn of a customer's thread groups under one Langfuse session
+    (a resume after an approval pause is a separate trace in the same session)."""
+    thread_id = f"cli-{customer['id']}"
+    cfg = {"configurable": {"thread_id": thread_id, "customer_id": customer["id"]},
+           "recursion_limit": 25}
+    handlers = tracing.callbacks()
+    if handlers:
+        cfg["callbacks"] = handlers
+        cfg["metadata"] = {"langfuse_session_id": thread_id,
+                           "langfuse_user_id": f"customer-{customer['id']}",
+                           "langfuse_tags": ["cli", "ecommerce-agents"]}
+    return cfg

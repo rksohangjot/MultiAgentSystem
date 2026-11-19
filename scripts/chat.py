@@ -3,12 +3,20 @@
 Refunds over $50 pause for a human decision; in this CLI you play the reviewer.
 Conversation state lives in data/checkpoints.db, so a pending review survives a restart.
 """
+from ecommerce_agents import tracing
 from ecommerce_agents.chat_loop import cli_review, new_message, resume_pending, session_config, sign_in, stream_turn
 from ecommerce_agents.db import DB_PATH, ensure_db
 from ecommerce_agents.graph import build_graph, sqlite_checkpointer
 
 
 def main():
+    try:
+        run()
+    finally:
+        tracing.flush()  # send buffered traces, or the last turn can be lost
+
+
+def run():
     ensure_db()
     graph = build_graph(sqlite_checkpointer(DB_PATH.parent / "checkpoints.db"))
     print("E-commerce support. Please sign in with your account email (try alice@example.com).")
