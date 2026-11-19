@@ -5,7 +5,7 @@ from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.errors import GraphRecursionError
 from langgraph.prebuilt import create_react_agent
 
-from ecommerce_agents import identity
+from ecommerce_agents import identity, tracing
 from ecommerce_agents.llm import get_llm
 from ecommerce_agents.tools import AGENT_TOOLS
 from ecommerce_agents.tools.refund_tools import pending_refund_for_customer
@@ -74,9 +74,11 @@ def build_refund_agent():
         try:
             result = agent.invoke(state, {**config, "recursion_limit": RECURSION_LIMIT})
         except GraphRecursionError:
+            tracing.record_event("escalation.loop_cap", node="refund")
             return {"messages": [AIMessage(content=HANDOFF, name="refund")],
                     **orphaned_refund_update(state, config)}
         if str(result["messages"][-1].content).startswith(OUT_OF_STEPS_PREFIX):
+            tracing.record_event("escalation.loop_cap", node="refund")
             return {"messages": [AIMessage(content=HANDOFF, name="refund")],
                     **orphaned_refund_update(state, config)}
         update = {"messages": result["messages"]}

@@ -4,6 +4,7 @@ from typing import Literal
 from langchain_core.messages import AIMessage, SystemMessage
 from pydantic import BaseModel, Field
 
+from ecommerce_agents import tracing
 from ecommerce_agents.llm import get_llm
 from ecommerce_agents.state import AgentState
 
@@ -33,6 +34,7 @@ def decide(messages) -> RouteDecision:
 def supervisor_node(state: AgentState) -> dict:
     iterations = state.get("iterations", 0) + 1
     if iterations > MAX_ITERATIONS:
+        tracing.record_event("escalation.loop_cap", node="supervisor")
         return {"next_agent": "FINISH", "iterations": iterations,
                 "messages": [AIMessage(content="Sorry, I couldn't complete that. Let me get a human to help.")]}
     decision = decide(state["messages"])

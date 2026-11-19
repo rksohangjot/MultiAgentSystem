@@ -6,7 +6,7 @@ Sets `guard_blocked` / `guard_notice` fresh each turn; the graph ends early when
 """
 from langchain_core.messages import AIMessage, HumanMessage
 
-from ecommerce_agents import guards, identity
+from ecommerce_agents import guards, identity, tracing
 from ecommerce_agents.state import AgentState
 
 
@@ -18,6 +18,7 @@ def input_guard_node(state: AgentState, config) -> dict:
 
     reason = guards.detect_injection(last.content)
     if reason:
+        tracing.record_event("guard.input.injection_blocked", reason=reason)
         return {"guard_blocked": True, "guard_notice": None, "escalated": False,
                 "messages": [HumanMessage(content=guards.REMOVED, id=last.id),
                              AIMessage(content=guards.REFUSAL, name="input_guard")]}
@@ -26,6 +27,7 @@ def input_guard_node(state: AgentState, config) -> dict:
     pii = guards.redact_pii(last.content, own_email=customer["email"] if customer else None)
     if not pii.found:
         return clean
+    tracing.record_event("guard.input.pii_redacted", kinds=sorted(set(pii.found)))
     return {"guard_blocked": False, "guard_notice": guards.pii_notice(pii.found), "escalated": False,
             "messages": [HumanMessage(content=pii.text, id=last.id)]}
 

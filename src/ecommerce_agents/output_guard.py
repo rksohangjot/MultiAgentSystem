@@ -12,7 +12,7 @@ replacement happens before the CLI/UI streams the node's output.
 import logging
 import re
 
-from ecommerce_agents import db, guards, identity
+from ecommerce_agents import db, guards, identity, tracing
 
 log = logging.getLogger(__name__)
 
@@ -115,6 +115,7 @@ def guard_update(update: dict, state, config) -> dict:
         reason = check_reply(m.content, customer_id) if is_new_reply else None
         if reason:
             log.warning("output guard blocked a reply: %s", reason)
+            tracing.record_event("guard.output.blocked", reason=reason)
             m = m.model_copy(update={"content": FALLBACK, "tool_calls": [], "additional_kwargs": {}})
         out.append(m)
     return {**update, "messages": out}

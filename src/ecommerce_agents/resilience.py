@@ -11,7 +11,7 @@ import logging
 
 from langchain_core.messages import AIMessage
 
-from ecommerce_agents import errors
+from ecommerce_agents import errors, tracing
 
 log = logging.getLogger(__name__)
 
@@ -32,6 +32,8 @@ def escalate_on_api_error(node, name: str, extra=None):
                 raise
             level = logging.WARNING if errors.is_transient(exc) else logging.ERROR
             log.log(level, "node %s failed (%s); escalating to a human", name, errors.reason(exc))
+            tracing.record_event("escalation.api_error", node=name, reason=errors.reason(exc),
+                                 transient=errors.is_transient(exc))
             update = {"messages": [AIMessage(content=HANDOFF, name=name)],
                       "escalated": True, "next_agent": "FINISH"}
             return {**update, **extra(state, config)} if extra else update

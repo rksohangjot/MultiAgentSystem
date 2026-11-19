@@ -58,6 +58,20 @@ def callbacks() -> list:
         return []
 
 
+def record_event(name: str, **detail) -> None:
+    """Mark a guard block or escalation on the current trace so it can be filtered in Langfuse.
+
+    Pass categories only (e.g. reason="leak"), never customer text. No-op when tracing was
+    never set up, and a failure here must not affect the turn.
+    """
+    if _client is None:
+        return
+    try:
+        _client.create_event(name=name, metadata=mask(detail))
+    except Exception:
+        log.warning("Langfuse event %s failed", name, exc_info=True)
+
+
 def flush() -> None:
     """Send buffered traces. Call before the process exits or the last turn can be lost."""
     if _client is None:
