@@ -60,13 +60,8 @@ uv sync
 cp .env.example .env        # then set GROQ_API_KEY (GROQ_MODEL is optional)
 ```
 
-The package is not installed, so put `src` on the path when running scripts:
-
 ```bash
-# macOS / Linux / Git Bash
-PYTHONPATH=src uv run python scripts/chat.py
-# Windows PowerShell
-$env:PYTHONPATH = "src"; uv run python scripts/chat.py
+uv run python scripts/chat.py
 ```
 
 Sign in with a mock account (the email lookup stands in for real auth): `alice@example.com`, `bob@example.com`, `carol@example.com`, `dan@example.com` or `eve@example.com`. Things to try:
@@ -96,10 +91,10 @@ About 250 offline tests cover tools, permissions, guardrails, failure handling, 
 The eval suite is separate from pytest, because it calls the live model and the LLM is not deterministic.
 
 ```bash
-PYTHONPATH=src uv run python scripts/run_evals.py                      # all 35 cases
-PYTHONPATH=src uv run python scripts/run_evals.py --category routing   # one category
-PYTHONPATH=src uv run python scripts/run_evals.py --no-judge           # skip the LLM judge
-PYTHONPATH=src uv run python scripts/run_evals.py --list               # show the cases
+uv run python scripts/run_evals.py                      # all 35 cases
+uv run python scripts/run_evals.py --category routing   # one category
+uv run python scripts/run_evals.py --no-judge           # skip the LLM judge
+uv run python scripts/run_evals.py --list               # show the cases
 ```
 
 - **Dataset:** 35 cases in `src/ecommerce_agents/evals/dataset.py`: routing (8), refund policy (8), mixed requests (4), permissions (5) and adversarial (10). Each case runs through the real graph on a throwaway seeded database with the date pinned, with scripted reviewer decisions for approvals.

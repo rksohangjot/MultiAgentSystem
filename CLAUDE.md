@@ -13,6 +13,8 @@ Multi-agent e-commerce support system (learning-first, aimed at AI roles). One c
 ## Commands
 - Chat (CLI): `uv run python scripts/chat.py`
 - Tests: `uv run pytest` (tests marked `llm` call the real Groq API and are skipped without `GROQ_API_KEY`)
+- Evals (live API): `uv run python scripts/run_evals.py`
+- The package is installed editable via `[build-system]` (hatchling) in `pyproject.toml`, so plain `uv run python scripts/...` works; no `PYTHONPATH` needed
 - Config: copy `.env.example` to `.env` and set `GROQ_API_KEY` (and optionally `GROQ_MODEL`)
 
 ## Status: Day 3 built (Guardrails + failure handling) + tracing (Langfuse) + evals (harness, 35 cases, Qwen judge) + tool_use_failed retry
@@ -38,7 +40,7 @@ Multi-agent e-commerce support system (learning-first, aimed at AI roles). One c
 - `chat_loop.py`: CLI logic (`stream_turn`, `cli_review`, `resume_pending`, `sign_in` email stand-in login, `session_config` per-customer thread) so it is testable.
 - `scripts/chat.py`: thin CLI over `chat_loop.py`; prints routing, you play the human reviewer for refunds >$50; state in `data/checkpoints.db`.
 
-- `evals/` (run with `PYTHONPATH=src uv run python scripts/run_evals.py [--category X] [--case ID] [--no-judge] [--list]`; the package is not installed, so plain `uv run python scripts/...` needs `PYTHONPATH=src`; not part of pytest, calls the live API): `case.py` (`EvalCase`/`Observation`), `runner.py` (`run_case`: real graph on a throwaway seeded DB, pinned date, scripted reviewer decisions), `checks.py` (deterministic checkers driven by each case's `expect`; DB/tool/route/flag checks and `reply_must_contain` are strict, `reply_contains_any`/`reply_excludes` are warnings only), `dataset.py` (35 cases: routing 8, refund_policy 8, mixed 4, permissions 5, adversarial 10), `judge.py` (Qwen `qwen/qwen3.8-27b` via `JUDGE_MODEL`, faithfulness/helpfulness/tone 1-5 on the 10 `judge=True` cases, informational only, never changes pass/fail, a failed judge call is recorded not raised), `report.py` (summary by category and metric, JSON report to `data/eval_reports/`, git-ignored). Groq has no open model stronger than gpt-oss-120b, so the judge is a different family but smaller; calibration tests check it discriminates.
+- `evals/` (run with `uv run python scripts/run_evals.py [--category X] [--case ID] [--no-judge] [--list]`; not part of pytest, calls the live API): `case.py` (`EvalCase`/`Observation`), `runner.py` (`run_case`: real graph on a throwaway seeded DB, pinned date, scripted reviewer decisions), `checks.py` (deterministic checkers driven by each case's `expect`; DB/tool/route/flag checks and `reply_must_contain` are strict, `reply_contains_any`/`reply_excludes` are warnings only), `dataset.py` (35 cases: routing 8, refund_policy 8, mixed 4, permissions 5, adversarial 10), `judge.py` (Qwen `qwen/qwen3.8-27b` via `JUDGE_MODEL`, faithfulness/helpfulness/tone 1-5 on the 10 `judge=True` cases, informational only, never changes pass/fail, a failed judge call is recorded not raised), `report.py` (summary by category and metric, JSON report to `data/eval_reports/`, git-ignored). Groq has no open model stronger than gpt-oss-120b, so the judge is a different family but smaller; calibration tests check it discriminates.
 
 ### Tests (`tests/`)
 - `test_tools.py`: order found/missing, product search, no match (temp seeded DB).

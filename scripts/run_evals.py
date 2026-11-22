@@ -1,10 +1,10 @@
 """Run the eval dataset against the live graph (calls the Groq API).
 
-  PYTHONPATH=src uv run python scripts/run_evals.py                      # all cases
-  PYTHONPATH=src uv run python scripts/run_evals.py --category routing   # one or more categories
-  PYTHONPATH=src uv run python scripts/run_evals.py --case refund_small_auto --case route_greeting
-  PYTHONPATH=src uv run python scripts/run_evals.py --no-judge          # skip the LLM judge
-  PYTHONPATH=src uv run python scripts/run_evals.py --list               # show the cases and exit
+  uv run python scripts/run_evals.py                      # all cases
+  uv run python scripts/run_evals.py --category routing   # one or more categories
+  uv run python scripts/run_evals.py --case refund_small_auto --case route_greeting
+  uv run python scripts/run_evals.py --no-judge          # skip the LLM judge
+  uv run python scripts/run_evals.py --list               # show the cases and exit
 
 Cases marked judge=True are also scored by the LLM judge (JUDGE_MODEL, default Qwen on Groq);
 scores are informational and never change pass/fail.
