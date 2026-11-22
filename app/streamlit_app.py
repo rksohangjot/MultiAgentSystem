@@ -2,4 +2,7 @@
 import streamlit as st
 
 st.set_page_config(page_title="Shop Support", page_icon="🛍️")
-st.navigation([st.Page("customer.py", title="Customer chat", default=True)]).run()
+st.navigation([
+    st.Page("customer.py", title="Customer chat", default=True),
+    st.Page("reviewer.py", title="Refund review (staff)"),
+]).run()
