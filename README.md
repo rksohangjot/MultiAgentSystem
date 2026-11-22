@@ -49,7 +49,7 @@ Agents communicate only through a shared LangGraph state (messages, routing deci
 2. *Input guard:* regex heuristics block prompt injection, and card numbers, SSNs, phone numbers and other people's emails are redacted before any model or checkpoint sees them.
 3. *Output guard:* blocks unbacked refund claims (it checks the DB), leaks of tool or prompt internals, other customers' data and raw PII. A blocked reply is replaced by a human handoff.
 
-**Failure handling.** The Groq SDK retries transient errors (429, 5xx, timeouts) with backoff. An error that survives the retries becomes one fixed handoff message and the turn ends. A refund already queued during an outage still reaches the approval node.
+**Failure handling.** The Groq SDK retries transient errors (429, 5xx, timeouts) with backoff, and a malformed tool call (Groq 400 `tool_use_failed`) is retried up to twice at node level. An error that survives the retries becomes one fixed handoff message and the turn ends. A refund already queued during an outage still reaches the approval node.
 
 **Tracing.** Optional Langfuse tracing: one trace per turn, per-customer sessions, PII masked, and guard and escalation events recorded by category only (never text).
 
@@ -107,6 +107,8 @@ PYTHONPATH=src uv run python scripts/run_evals.py --list               # show th
 - **LLM judge for quality** (`evals/judge.py`): `qwen/qwen3.8-27b` on Groq scores faithfulness, helpfulness and tone, 1-5, on 10 selected cases. Scores are informational and never change pass or fail. Qwen is a different model family from the agents, so it does not grade its own work. Groq has no open model stronger than `gpt-oss-120b`, so the judge is smaller than the agents; two calibration tests check that it scores invented facts and rude replies lower.
 - **Reports:** one JSON file per run in `data/eval_reports/` (git-ignored).
 
+**Latest full run** (35 cases, judge on): **35/35 cases passed**. By metric: routing 25/25, tool correctness 27/27, policy 46/46 (strict checks), no harness errors and no reply-text warnings. The judge averaged faithfulness 5.0, helpfulness 4.3 and tone 4.9 over the 10 judged cases. Its only low score was a helpfulness 2 on `refund_over_50_rejected`: the rejection message gives no next step. A single run is a snapshot, not a guarantee: the model is not deterministic, and routing varied between runs of the mixed-request cases.
+
 **What the evals found.** Deterministic checks alone passed everything, and the LLM judge then flagged two real bugs that no database check could see:
 1. After an approved over-$50 refund, the supervisor sent the request back to the refund agent, whose stale "queued for human review" reply overwrote the approval message. Fix: a specialist now runs at most once per customer message, enforced in code.
 2. On a mixed message, the supervisor could loop until its 4-turn cap and give the customer a vague handoff that was not marked as escalated. Fix: the cap now escalates properly.
@@ -137,7 +139,6 @@ data/                 return policy; the SQLite databases are created on first r
 ## Known limits
 
 - The injection guard is regex-based, so paraphrased attacks can slip past it. The eval set includes one such case: it got through the guard and was stopped by the code-enforced refund policy, which is the backstop.
-- A Groq 400 `tool_use_failed` (a malformed tool call) is treated as permanent and escalates to a human instead of being retried. It showed up once in an eval run.
 - The request timeout is per request, not per turn, because a per-turn deadline would wrongly expire during a human-approval pause.
 - Sign-in by email and the CLI reviewer are stand-ins: there is no real authentication or reviewer UI yet.
 - The judge model is smaller than the agents' model (see Evals).
