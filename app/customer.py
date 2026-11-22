@@ -11,10 +11,12 @@ EXAMPLES = ["Where is my order?", "Do you have wireless headphones?", "I'd like 
 def sign_in_view():
     st.title("Shop Support")
     st.caption("Demo accounts. Picking one stands in for real authentication.")
-    customers = demo_customers()
-    choice = st.selectbox("Sign in as", customers, format_func=lambda c: f"{c['name']} ({c['email']})")
+    by_id = {c["id"]: c for c in demo_customers()}
+    # Plain ids as options (not dicts) and an explicit default, so something is always selected.
+    chosen = st.selectbox("Sign in as", list(by_id), index=0,
+                          format_func=lambda i: f"{by_id[i]['name']} ({by_id[i]['email']})")
     if st.button("Sign in", type="primary"):
-        st.session_state["customer"] = choice
+        st.session_state["customer"] = by_id[chosen]
         st.rerun()
 
 
