@@ -3,8 +3,11 @@
   PYTHONPATH=src uv run python scripts/run_evals.py                      # all cases
   PYTHONPATH=src uv run python scripts/run_evals.py --category routing   # one or more categories
   PYTHONPATH=src uv run python scripts/run_evals.py --case refund_small_auto --case route_greeting
+  PYTHONPATH=src uv run python scripts/run_evals.py --no-judge          # skip the LLM judge
   PYTHONPATH=src uv run python scripts/run_evals.py --list               # show the cases and exit
 
+Cases marked judge=True are also scored by the LLM judge (JUDGE_MODEL, default Qwen on Groq);
+scores are informational and never change pass/fail.
 Writes data/eval_reports/eval-<timestamp>.json. Exit code 1 if any case fails.
 This is not part of pytest: it costs API calls and the LLM is not deterministic.
 """
@@ -14,6 +17,7 @@ import sys
 from pathlib import Path
 
 from ecommerce_agents.evals.dataset import CASES
+from ecommerce_agents.evals.judge import judge_case
 from ecommerce_agents.evals.report import format_summary, run_cases, select_cases, summarize, write_report
 
 REPORT_DIR = Path(__file__).resolve().parent.parent / "data" / "eval_reports"
@@ -23,6 +27,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--category", action="append", help="only this category (repeatable)")
     ap.add_argument("--case", action="append", help="only this case id (repeatable)")
+    ap.add_argument("--no-judge", action="store_true", help="deterministic checks only (skip the LLM judge)")
     ap.add_argument("--list", action="store_true", help="list the selected cases and exit")
     ap.add_argument("--out", type=Path, default=REPORT_DIR, help="report directory")
     args = ap.parse_args(argv)
@@ -47,7 +52,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[{'PASS' if rec['passed'] else 'FAIL'}] {rec['category']:<14} {rec['id']}", flush=True)
 
     print(f"Running {len(cases)} case(s)...")
-    records = run_cases(cases, on_record=show)
+    records = run_cases(cases, on_record=show, judge=None if args.no_judge else judge_case)
     summary = summarize(records)
     print(format_summary(summary))
     path = write_report(records, summary, args.out, os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"))

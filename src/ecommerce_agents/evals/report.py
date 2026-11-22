@@ -10,6 +10,7 @@ from typing import Callable
 
 from ecommerce_agents.evals.case import EvalCase, Observation
 from ecommerce_agents.evals.checks import case_passed, check
+from ecommerce_agents.evals.judge import CRITERIA, LOW_SCORE
 from ecommerce_agents.evals.runner import run_case
 
 # Check name -> the metric it feeds (the four DESIGN.md metrics, plus harness health).
@@ -37,23 +38,26 @@ def select_cases(cases: list[EvalCase], categories: list[str] | None = None,
             if (not categories or c.category in categories) and (not ids or c.id in ids)]
 
 
-def evaluate(case: EvalCase, obs: Observation) -> dict:
-    """One JSON-serialisable record: verdict, every check, and the full observation."""
+def evaluate(case: EvalCase, obs: Observation,
+             judge: Callable[[EvalCase, Observation], dict] | None = None) -> dict:
+    """One JSON-serialisable record: verdict, every check, and the full observation.
+    The judge (if given) scores only cases with judge=True and never affects `passed`."""
     results = check(case, obs)
     return {
         "id": case.id, "category": case.category, "judge_requested": case.judge,
         "passed": case_passed(results),
         "checks": [r.to_dict() for r in results],
         "observation": obs.to_dict(),
-        "judge": None,  # filled in by the LLM judge (a later step)
+        "judge": judge(case, obs) if judge and case.judge else None,
     }
 
 
 def run_cases(cases: list[EvalCase], runner: Callable[[EvalCase], Observation] = run_case,
-              on_record: Callable[[dict], None] | None = None) -> list[dict]:
+              on_record: Callable[[dict], None] | None = None,
+              judge: Callable[[EvalCase, Observation], dict] | None = None) -> list[dict]:
     records = []
     for case in cases:
-        record = evaluate(case, runner(case))
+        record = evaluate(case, runner(case), judge)
         records.append(record)
         if on_record:
             on_record(record)
@@ -76,6 +80,17 @@ def summarize(records: list[dict]) -> dict:
                 by_metric[METRIC_OF.get(c["name"], "other")].append(c["passed"])
             elif not c["passed"]:
                 warnings += 1
+    judged = [r["judge"] for r in records if r.get("judge")]
+    scored = [j for j in judged if "scores" in j]
+    judge_summary = {
+        "scored": len(scored), "errors": len(judged) - len(scored),
+        "average": {c: round(sum(j["scores"][c] for j in scored) / len(scored), 2) for c in CRITERIA}
+        if scored else {},
+        "low": [{"id": r["id"], "criterion": c, "score": r["judge"]["scores"][c],
+                 "reason": r["judge"]["reasons"][c]}
+                for r in records if r.get("judge") and "scores" in r["judge"]
+                for c in CRITERIA if r["judge"]["scores"][c] <= LOW_SCORE],
+    }
     failures = [{"id": r["id"], "failed_checks": [{"name": c["name"], "detail": c["detail"]}
                                                     for c in r["checks"] if c["strict"] and not c["passed"]]}
                 for r in records if not r["passed"]]
@@ -84,6 +99,7 @@ def summarize(records: list[dict]) -> dict:
         "by_category": {k: _rate(sum(v), len(v)) for k, v in sorted(by_cat.items())},
         "by_metric": {k: _rate(sum(v), len(v)) for k, v in sorted(by_metric.items())},
         "reply_warnings": warnings,
+        "judge": judge_summary,
         "failures": failures,
     }
 
@@ -99,6 +115,11 @@ def format_summary(summary: dict) -> str:
     out.append("By metric (strict checks):")
     out += [_line(k, v) for k, v in summary["by_metric"].items()]
     out.append(f"Reply-text warnings (non-fatal): {summary['reply_warnings']}")
+    j = summary["judge"]
+    if j["scored"] or j["errors"]:
+        avg = ", ".join(f"{c} {v}" for c, v in j["average"].items()) or "n/a"
+        out.append(f"Judge (informational, not in pass/fail): {j['scored']} scored, {j['errors']} error(s); avg {avg}")
+        out += [f"  low {x['criterion']}={x['score']} {x['id']}: {x['reason']}" for x in j["low"]]
     if summary["failures"]:
         out.append("Failures:")
         for f in summary["failures"]:
