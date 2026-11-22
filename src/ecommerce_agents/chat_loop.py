@@ -86,14 +86,14 @@ def sign_in(ask=input, emit=print) -> dict | None:
     return None
 
 
-def session_config(customer: dict) -> dict:
+def session_config(customer: dict, surface: str = "cli") -> dict:
     """Run config for one customer. The thread is per customer so chats (and pending
-    approvals) are never shared; customer_id is read by the tools, never by the LLM.
+    approvals) are never shared (`surface` is "cli" or "web", so the two never mix); customer_id is read by the tools, never by the LLM.
 
     When Langfuse is configured, the handler goes in `callbacks` and the session/user ids in
     `metadata`, so every turn of a customer's thread groups under one Langfuse session
     (a resume after an approval pause is a separate trace in the same session)."""
-    thread_id = f"cli-{customer['id']}"
+    thread_id = f"{surface}-{customer['id']}"
     cfg = {"configurable": {"thread_id": thread_id, "customer_id": customer["id"]},
            "recursion_limit": 25}
     handlers = tracing.callbacks()
@@ -101,5 +101,5 @@ def session_config(customer: dict) -> dict:
         cfg["callbacks"] = handlers
         cfg["metadata"] = {"langfuse_session_id": thread_id,
                            "langfuse_user_id": f"customer-{customer['id']}",
-                           "langfuse_tags": ["cli", "ecommerce-agents"]}
+                           "langfuse_tags": [surface, "ecommerce-agents"]}
     return cfg

@@ -163,6 +163,21 @@ def pending_refund_for_customer(customer_id: int | None) -> int | None:
         conn.close()
 
 
+def pending_refunds() -> list[dict]:
+    """Every refund waiting for a human decision (oldest first), with its customer. For the reviewer UI."""
+    db.ensure_db()
+    conn = db.get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT r.id AS refund_id, r.order_id, r.amount, r.reason, r.created_at, "
+            "o.customer_id, c.name AS customer_name "
+            "FROM refunds r JOIN orders o ON o.id = r.order_id JOIN customers c ON c.id = o.customer_id "
+            "WHERE r.status = ? ORDER BY r.id", (PENDING,)).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
 def decide_refund(refund_id: int, approved: bool, note: str = "", today: date | None = None) -> dict:
     """Apply a human reviewer's decision to a pending refund. NOT an agent tool.
 
