@@ -1,7 +1,7 @@
 """Supervisor: decides which specialist handles the conversation next."""
 from typing import Literal
 
-from langchain_core.messages import AIMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
 from ecommerce_agents import tracing
@@ -9,6 +9,8 @@ from ecommerce_agents.llm import get_llm
 from ecommerce_agents.state import AgentState
 
 MAX_ITERATIONS = 4  # hard cap on supervisor turns: loop prevention
+SPECIALISTS = ("order_status", "product_info", "refund")
+CAP_REPLY = "Sorry, I couldn't complete that. Let me get a human to help."
 
 SYSTEM = """You are the supervisor of an e-commerce support team. Pick who acts next:
 - order_status: questions about an order's status, tracking, delivery.
@@ -31,13 +33,25 @@ def decide(messages) -> RouteDecision:
     return llm.invoke([SystemMessage(content=SYSTEM), *messages])
 
 
+def specialists_run_this_turn(messages) -> set[str]:
+    """Specialists that already answered since the customer's latest message (read from message names)."""
+    start = max((i for i, m in enumerate(messages) if isinstance(m, HumanMessage)), default=-1)
+    return {m.name for m in messages[start + 1:] if isinstance(m, AIMessage) and m.name in SPECIALISTS}
+
+
 def supervisor_node(state: AgentState) -> dict:
     iterations = state.get("iterations", 0) + 1
     if iterations > MAX_ITERATIONS:
         tracing.record_event("escalation.loop_cap", node="supervisor")
-        return {"next_agent": "FINISH", "iterations": iterations,
-                "messages": [AIMessage(content="Sorry, I couldn't complete that. Let me get a human to help.")]}
+        return {"next_agent": "FINISH", "iterations": iterations, "escalated": True,
+                "messages": [AIMessage(content=CAP_REPLY)]}
     decision = decide(state["messages"])
+    if decision.next_agent in specialists_run_this_turn(state["messages"]):
+        # Code-enforced: the prompt asks the model not to repeat a specialist, but it still does
+        # (e.g. re-sending a finished refund to the refund agent, whose stale reply then
+        # overwrites the approval outcome). A specialist runs at most once per customer message.
+        tracing.record_event("supervisor.repeat_blocked", agent=decision.next_agent)
+        decision = RouteDecision(next_agent="FINISH")
     update: dict = {"next_agent": decision.next_agent, "iterations": iterations}
     last = state["messages"][-1]
     # Only speak directly if no specialist has just answered.

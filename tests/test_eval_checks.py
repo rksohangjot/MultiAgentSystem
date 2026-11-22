@@ -82,6 +82,14 @@ def test_reply_checks_are_warnings_not_failures():
     assert result(ok, "reply_contains_any").passed  # case-insensitive
 
 
+def test_reply_must_contain_is_strict_and_checks_the_final_reply():
+    res = run({"reply_must_contain": ["approved and processed"]},
+              replies=["queued for review", "Your refund was Approved and Processed."])
+    assert result(res, "reply_must_contain").passed  # last reply, case-insensitive
+    bad = run({"reply_must_contain": ["approved and processed"]}, replies=["Your refund is queued for human review."])
+    assert not result(bad, "reply_must_contain").passed and not case_passed(bad)  # strict: fails the case
+
+
 def test_unknown_expect_key_is_rejected():
     with pytest.raises(ValueError, match="agent_exact"):
         run({"agent_exact": ["refund"]})

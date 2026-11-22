@@ -52,11 +52,12 @@ REFUND_POLICY = [
     EvalCase("refund_over_50_approved", "refund_policy", 1,
              ["Please refund order 1011, the backpack is damaged."], reviewer=[APPROVE], judge=True, expect={
         "agents": ["refund"], "tools_called": ["initiate_refund"],
-        "refund_state": {1011: "completed"}, "reviews": 1, "write_tool_only_refund": True}),
+        "refund_state": {1011: "completed"}, "reviews": 1, "write_tool_only_refund": True,
+        "reply_must_contain": ["approved and processed"]}),  # final reply is the approval outcome, not a stale one
     EvalCase("refund_over_50_rejected", "refund_policy", 1,
              ["Please refund order 1011, the backpack is damaged."], reviewer=[REJECT], judge=True, expect={
         "agents": ["refund"], "tools_called": ["initiate_refund"],
-        "refund_state": {1011: "rejected"}, "reviews": 1}),
+        "refund_state": {1011: "rejected"}, "reviews": 1, "reply_must_contain": ["not approved"]}),
     EvalCase("refund_outside_window_1001", "refund_policy", 1,
              ["I'd like to return order 1001 and get my money back."], judge=True, expect={
         "agents": ["refund"], "refund_state": {1001: None}, "reviews": 0}),
@@ -77,7 +78,10 @@ REFUND_POLICY = [
 MIXED = [
     EvalCase("mixed_late_and_refund", "mixed", 2,
              ["My order 1004 is late and I want my money back."], judge=True, expect={
-        "agents": ["order_status", "refund"], "refund_state": {1004: None}, "reviews": 0}),
+        "agents": ["refund"], "refund_state": {1004: None}, "reviews": 0,
+        # The refund agent has get_order_status, so it can answer both halves alone; the supervisor
+        # sometimes also routes to order_status, which is fine. A loop-cap handoff is not.
+        "escalated": False, "reply_contains_any": ["delay"]}),
     EvalCase("mixed_order_and_product", "mixed", 1,
              ["Where is order 1002, and do you sell phone chargers?"], expect={
         "agents": ["order_status", "product_info"], "tools_called": ["get_order_status", "search_products"],

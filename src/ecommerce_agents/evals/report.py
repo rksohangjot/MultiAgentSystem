@@ -19,6 +19,7 @@ METRIC_OF = {
     "tools_called": "tool_correctness", "tools_not_called": "tool_correctness",
     "write_tool_only_refund": "tool_correctness",
     "refund_state": "policy", "reviews": "policy", "escalated": "policy", "guard_blocked": "policy",
+    "reply_must_contain": "policy",
     "reply_contains_any": "reply_text", "reply_excludes": "reply_text",
     "no_error": "harness",
 }
